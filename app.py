@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 import datetime
 import uuid
+import tempfile
 import os
+from office365.sharepoint.client_context import ClientContext
+from office365.runtime.auth.authentication_context import AuthenticationContext
 
 # Configuração da página
 st.set_page_config(
@@ -39,22 +42,43 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Função para carregar dados de referência
+# 🔐 Credenciais (use st.secrets depois)
+USERNAME = "odiego@suzano.com.br"
+PASSWORD = "SUA_SENHA_AQUI"  # Use st.secrets no Streamlit Cloud
+SHAREPOINT_URL = "https://suzano-my.sharepoint.com/personal/odiego_suzano_com_br"
+EXCEL_FILE_URL = "/Documents/Novo%20Recebimento/modelo_recebimento.xlsx"
+
+# Função para carregar dados de referência do Excel no SharePoint
 @st.cache_data
 def load_reference_data():
     try:
-        materiais_df = pd.read_excel('data/Controle-Copia(9).xlsx', sheet_name='Planilha3')
-        compatibilidade_df = pd.read_excel('data/Controle-Copia(9).xlsx', sheet_name='Compatibilidade')
-        try:
-            locais_df = pd.read_excel('data/Controle-Copia(9).xlsx', sheet_name='Planilha1')
-        except:
-            locais_df = pd.DataFrame({'Onde': ['Área 1', 'Área 2', 'Área 3', 'Estoque A', 'Estoque B']})
-        return materiais_df, compatibilidade_df, locais_df
+        ctx_auth = AuthenticationContext(SHAREPOINT_URL)
+        if ctx_auth.acquire_token_for_user(USERNAME, PASSWORD):
+            ctx = ClientContext(SHAREPOINT_URL, ctx_auth)
+            response = ctx.web.get_file_by_server_relative_path(EXCEL_FILE_URL).download()
+            ctx.execute_query()
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                tmp.write(response.content)
+                temp_path = tmp.name
+
+            materiais_df = pd.read_excel(temp_path, sheet_name='Planilha3')
+            compatibilidade_df = pd.read_excel(temp_path, sheet_name='Compatibilidade')
+            try:
+                locais_df = pd.read_excel(temp_path, sheet_name='Planilha1')
+            except:
+                locais_df = pd.DataFrame({'Onde': ['Área 1', 'Área 2', 'Área 3', 'Estoque A', 'Estoque B']})
+
+            os.unlink(temp_path)
+            return materiais_df, compatibilidade_df, locais_df
+        else:
+            st.error("❌ Falha na autenticação no SharePoint")
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     except Exception as e:
-        st.error(f"Erro ao carregar dados de referência: {e}")
+        st.error(f"❌ Erro ao carregar modelo_recebimento.xlsx: {e}")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-# Função para carregar dados de recebimento
+# Função para carregar dados de recebimento (CSV local)
 def load_recebimento_data():
     if os.path.exists('data/recebimento.csv'):
         return pd.read_csv('data/recebimento.csv')
