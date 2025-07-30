@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import datetime
 import uuid
-import io
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # Configuração da página
 st.set_page_config(
@@ -39,45 +40,56 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Header
-st.markdown("""
-<div class="main-header">
-    <h1>🏭 Sistema de Recebimento - Suzano</h1>
-    <p>Cadastro de Materiais Recebidos</p>
-</div>
-""", unsafe_allow_html=True)
+# 🔐 Nome da planilha (deve ser exatamente igual)
+SHEET_NAME = "modelo_recebimento_suzano"
 
-# Upload do arquivo Excel
-uploaded_file = st.file_uploader("📤 Escolha o arquivo modelo_recebimento.xlsx", type=["xlsx"])
+# Função para conectar ao Google Sheets
+@st.cache_resource
+def connect_to_google_sheets():
+    try:
+        # Credenciais do st.secrets
+        creds_dict = st.secrets["gcp_service_account"]
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(credentials)
+        return client.open(SHEET_NAME)
+    except Exception as e:
+        st.error(f"❌ Erro ao conectar ao Google Sheets: {e}")
+        return None
 
-if not uploaded_file:
-    st.info("👆 Por favor, envie o arquivo `modelo_recebimento.xlsx` para começar.")
-    st.stop()
+# Função para carregar uma aba
+def load_sheet(sheet_name):
+    try:
+        sheet = sh.worksheet(sheet_name)
+        data = sheet.get_all_records()
+        return pd.DataFrame(data)
+    except:
+        st.warning(f"Aba '{sheet_name}' não encontrada.")
+        return pd.DataFrame()
 
-# Carregar o Excel enviado
-try:
-    excel_file = pd.ExcelFile(uploaded_file)
-except Exception as e:
-    st.error(f"❌ Erro ao ler o arquivo Excel: {e}")
+# Conectar ao Google Sheets
+sh = connect_to_google_sheets()
+if not sh:
     st.stop()
 
 # Carregar dados de referência
 try:
-    materiais_df = excel_file.parse('Planilha3')
-    compatibilidade_df = excel_file.parse('Compatibilidade')
-    try:
-        locais_df = excel_file.parse('Planilha1')
-    except:
+    materiais_df = load_sheet("Planilha3")
+    compatibilidade_df = load_sheet("Compatibilidade")
+    locais_df = load_sheet("Planilha1")
+    if locais_df.empty:
         locais_df = pd.DataFrame({'Onde': ['Área 1', 'Área 2', 'Área 3', 'Estoque A', 'Estoque B']})
 except Exception as e:
-    st.error(f"❌ Erro ao carregar abas de referência: {e}")
+    st.error(f"❌ Erro ao carregar dados: {e}")
     st.stop()
 
-# Carregar dados de recebimento (aba 'Recebimento')
-try:
-    df_recebimento = excel_file.parse('Recebimento')
-except:
-    st.warning("Aba 'Recebimento' não encontrada. Criando nova...")
+# Carregar dados de recebimento
+df_recebimento = load_sheet("Recebimento")
+if df_recebimento.empty:
+    st.warning("Aba 'Recebimento' vazia. Criando nova...")
     columns = [
         'teste', '04 - Item Material na NF', '02 - Nf', '05 - RR', '6 - RR',
         '06 - Chave de acesso', '07 - Fornecedor', '10 - Qtd', '09 - Descrição Material',
@@ -87,7 +99,19 @@ except:
     ]
     df_recebimento = pd.DataFrame(columns=columns)
 
-# Função para buscar descrição do material
+# Função para salvar dados
+def save_to_sheet(df, sheet_name):
+    try:
+        sheet = sh.worksheet(sheet_name)
+        sheet.clear()
+        sheet.append_row(df.columns.tolist())
+        for row in df.values.tolist():
+            sheet.append_row(row)
+        st.success("✅ Dados salvos no Google Sheets!")
+    except Exception as e:
+        st.error(f"❌ Erro ao salvar: {e}")
+
+# Funções de busca
 def get_material_description(ni, materiais_df):
     if not materiais_df.empty and ni:
         material = materiais_df[materiais_df.iloc[:, 0].astype(str) == str(ni)]
@@ -95,13 +119,20 @@ def get_material_description(ni, materiais_df):
             return material.iloc[0, 1]
     return ""
 
-# Função para buscar compatibilidade
 def get_compatibility_info(ni, compatibilidade_df):
     if not compatibilidade_df.empty and ni:
         compatibility = compatibilidade_df[compatibilidade_df['NI'].astype(str) == str(ni)]
         if not compatibility.empty:
             return compatibility.iloc[0]['Materiais Incompatíveis'] if 'Materiais Incompatíveis' in compatibility.columns else ""
     return ""
+
+# Header
+st.markdown("""
+<div class="main-header">
+    <h1>🏭 Sistema de Recebimento - Suzano</h1>
+    <p>Cadastro de Materiais Recebidos</p>
+</div>
+""", unsafe_allow_html=True)
 
 # Menu
 st.sidebar.title("📋 Menu")
@@ -176,10 +207,9 @@ if page == "Cadastro":
                     'Ano': ano,
                     '__PowerAppsId__': str(uuid.uuid4())
                 }
-                # Atualizar o DataFrame
                 global df_recebimento
                 df_recebimento = pd.concat([df_recebimento, pd.DataFrame([novo_registro])], ignore_index=True)
-                st.success("✅ Material cadastrado com sucesso!")
+                save_to_sheet(df_recebimento, "Recebimento")
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -207,7 +237,7 @@ elif page == "Visualizar Dados":
         with col3: st.metric("Fornecedores", df_filtrado['07 - Fornecedor'].nunique())
         with col4: st.metric("Áreas", df_filtrado['17 - Área'].nunique())
     else:
-        st.info("📝 Nenhum dado encontrado. Cadastre primeiro!")
+        st.info("📝 Nenhum dado encontrado.")
 
 elif page == "Gerar Rótulo":
     st.subheader("🏷️ Gerador de Rótulos")
@@ -236,29 +266,6 @@ elif page == "Gerar Rótulo":
                 st.success("✅ Enviado para impressão!")
     else:
         st.info("📝 Nenhum material cadastrado.")
-
-# Botão para baixar o arquivo atualizado
-st.markdown("---")
-st.subheader("💾 Salvar alterações")
-
-# Criar um novo Excel com todas as abas, incluindo 'Recebimento' atualizada
-with pd.ExcelWriter("modelo_recebimento_atualizado.xlsx", engine="openpyxl") as writer:
-    # Reescrever todas as abas originais
-    for sheet_name in excel_file.sheet_names:
-        if sheet_name != "Recebimento":
-            df_sheet = pd.read_excel(uploaded_file, sheet_name=sheet_name)
-            df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
-    # Salvar a aba de recebimento atualizada
-    df_recebimento.to_excel(writer, sheet_name="Recebimento", index=False)
-
-# Ler o arquivo para download
-with open("modelo_recebimento_atualizado.xlsx", "rb") as f:
-    st.download_button(
-        label="📥 Baixar modelo_recebimento.xlsx (atualizado)",
-        data=f,
-        file_name="modelo_recebimento_atualizado.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
 
 st.markdown("---")
 st.markdown("**Sistema de Recebimento Suzano** - Desenvolvido com Streamlit")
