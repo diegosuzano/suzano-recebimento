@@ -2,10 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import uuid
-import os
-
-# Caminho da pasta de rede
-EXCEL_PATH = r"\\samcpd42\PUBLIC\Area de Transferência\Materiais\Novo Recebimento\modelo_recebimento.xlsx"
+import io
 
 # Configuração da página
 st.set_page_config(
@@ -42,53 +39,53 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Função para carregar dados de referência do Excel
-@st.cache_data
-def load_reference_data():
-    try:
-        materiais_df = pd.read_excel(EXCEL_PATH, sheet_name='Planilha3')
-        compatibilidade_df = pd.read_excel(EXCEL_PATH, sheet_name='Compatibilidade')
-        try:
-            locais_df = pd.read_excel(EXCEL_PATH, sheet_name='Planilha1')
-        except:
-            locais_df = pd.DataFrame({'Onde': ['Área 1', 'Área 2', 'Área 3', 'Estoque A', 'Estoque B']})
-        return materiais_df, compatibilidade_df, locais_df
-    except Exception as e:
-        st.error(f"❌ Erro ao carregar dados de referência: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+# Header
+st.markdown("""
+<div class="main-header">
+    <h1>🏭 Sistema de Recebimento - Suzano</h1>
+    <p>Cadastro de Materiais Recebidos</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Função para carregar dados de recebimento
-def load_recebimento_data():
-    try:
-        df = pd.read_excel(EXCEL_PATH, sheet_name='Recebimento')
-        return df
-    except Exception as e:
-        st.warning("Aba 'Recebimento' não encontrada ou vazia. Criando nova...")
-        columns = [
-            'teste', '04 - Item Material na NF', '02 - Nf', '05 - RR', '6 - RR',
-            '06 - Chave de acesso', '07 - Fornecedor', '10 - Qtd', '09 - Descrição Material',
-            '11 - Tipo', '08 - Ni', '17 - Área', '12 - Medida Pallets', '13 - Programado',
-            '15 - Recebedor', '14 - Status', '16 - Observação', '01 - Nº Processo',
-            'Controle', 'Data', 'Dia', 'Mês', 'Ano', '__PowerAppsId__'
-        ]
-        return pd.DataFrame(columns=columns)
+# Upload do arquivo Excel
+uploaded_file = st.file_uploader("📤 Escolha o arquivo modelo_recebimento.xlsx", type=["xlsx"])
 
-# Função para salvar dados no Excel
-def save_recebimento_data(df):
+if not uploaded_file:
+    st.info("👆 Por favor, envie o arquivo `modelo_recebimento.xlsx` para começar.")
+    st.stop()
+
+# Carregar o Excel enviado
+try:
+    excel_file = pd.ExcelFile(uploaded_file)
+except Exception as e:
+    st.error(f"❌ Erro ao ler o arquivo: {e}")
+    st.stop()
+
+# Carregar dados de referência
+try:
+    materiais_df = excel_file.parse('Planilha3')
+    compatibilidade_df = excel_file.parse('Compatibilidade')
     try:
-        # Ler todas as abas existentes
-        with pd.ExcelFile(EXCEL_PATH, engine='openpyxl') as xls:
-            with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl', mode='w') as writer:
-                # Reescrever todas as abas, exceto 'Recebimento'
-                for sheet_name in xls.sheet_names:
-                    if sheet_name != 'Recebimento':
-                        df_sheet = pd.read_excel(xls, sheet_name=sheet_name)
-                        df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
-                # Salvar a aba atualizada de recebimento
-                df.to_excel(writer, sheet_name='Recebimento', index=False)
-        st.success("✅ Dados salvos no modelo_recebimento.xlsx com sucesso!")
-    except Exception as e:
-        st.error(f"❌ Erro ao salvar no Excel: {e}")
+        locais_df = excel_file.parse('Planilha1')
+    except:
+        locais_df = pd.DataFrame({'Onde': ['Área 1', 'Área 2', 'Área 3', 'Estoque A', 'Estoque B']})
+except Exception as e:
+    st.error(f"❌ Erro ao carregar abas de referência: {e}")
+    st.stop()
+
+# Carregar dados de recebimento (aba 'Recebimento')
+try:
+    df_recebimento = excel_file.parse('Recebimento')
+except:
+    st.warning("Aba 'Recebimento' não encontrada. Criando nova...")
+    columns = [
+        'teste', '04 - Item Material na NF', '02 - Nf', '05 - RR', '6 - RR',
+        '06 - Chave de acesso', '07 - Fornecedor', '10 - Qtd', '09 - Descrição Material',
+        '11 - Tipo', '08 - Ni', '17 - Área', '12 - Medida Pallets', '13 - Programado',
+        '15 - Recebedor', '14 - Status', '16 - Observação', '01 - Nº Processo',
+        'Controle', 'Data', 'Dia', 'Mês', 'Ano', '__PowerAppsId__'
+    ]
+    df_recebimento = pd.DataFrame(columns=columns)
 
 # Função para buscar descrição do material
 def get_material_description(ni, materiais_df):
@@ -105,18 +102,6 @@ def get_compatibility_info(ni, compatibilidade_df):
         if not compatibility.empty:
             return compatibility.iloc[0]['Materiais Incompatíveis'] if 'Materiais Incompatíveis' in compatibility.columns else ""
     return ""
-
-# Carregar dados
-materiais_df, compatibilidade_df, locais_df = load_reference_data()
-df_recebimento = load_recebimento_data()
-
-# Header
-st.markdown("""
-<div class="main-header">
-    <h1>🏭 Sistema de Recebimento - Suzano</h1>
-    <p>Cadastro de Materiais Recebidos</p>
-</div>
-""", unsafe_allow_html=True)
 
 # Menu
 st.sidebar.title("📋 Menu")
@@ -191,8 +176,9 @@ if page == "Cadastro":
                     'Ano': ano,
                     '__PowerAppsId__': str(uuid.uuid4())
                 }
+                global df_recebimento
                 df_recebimento = pd.concat([df_recebimento, pd.DataFrame([novo_registro])], ignore_index=True)
-                save_recebimento_data(df_recebimento)
+                st.success("✅ Material cadastrado com sucesso!")
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -249,6 +235,29 @@ elif page == "Gerar Rótulo":
                 st.success("✅ Enviado para impressão!")
     else:
         st.info("📝 Nenhum material cadastrado.")
+
+# Botão para baixar o arquivo atualizado
+st.markdown("---")
+st.subheader("💾 Salvar alterações")
+
+# Criar um novo Excel com todas as abas, incluindo 'Recebimento' atualizada
+with pd.ExcelWriter("modelo_recebimento_atualizado.xlsx", engine="openpyxl") as writer:
+    # Reescrever todas as abas originais
+    for sheet_name in excel_file.sheet_names:
+        if sheet_name != "Recebimento":
+            df_sheet = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+            df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
+    # Salvar a aba de recebimento atualizada
+    df_recebimento.to_excel(writer, sheet_name="Recebimento", index=False)
+
+# Ler o arquivo para download
+with open("modelo_recebimento_atualizado.xlsx", "rb") as f:
+    st.download_button(
+        label="📥 Baixar modelo_recebimento.xlsx (atualizado)",
+        data=f,
+        file_name="modelo_recebimento_atualizado.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 st.markdown("---")
 st.markdown("**Sistema de Recebimento Suzano** - Desenvolvido com Streamlit")
