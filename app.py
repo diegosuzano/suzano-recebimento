@@ -40,7 +40,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🔐 Nome da planilha no Google Sheets
+# 🔐 Nome da planilha no Google Sheets (deve ser exatamente igual)
 SHEET_NAME = "modelo_recebimento_suzano"
 
 # Função para conectar ao Google Sheets
@@ -66,7 +66,7 @@ def load_sheet(sheet_name):
         sheet = sh.worksheet(sheet_name)
         data = sheet.get_all_records()
         return pd.DataFrame(data)
-    except:
+    except Exception as e:
         st.warning(f"Aba '{sheet_name}' não encontrada.")
         return pd.DataFrame()
 
