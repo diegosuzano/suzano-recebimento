@@ -43,7 +43,7 @@ st.markdown("""
 
 # 🔐 Credenciais (use st.secrets)
 USERNAME = st.secrets["sharepoint"]["username"]  # "odiego@suzano.com.br"
-PASSWORD = st.secrets["sharepoint"]["password"]  # "sua_senha_aqui"
+PASSWORD = st.secrets["sharepoint"]["password"]  # "Joaquim.0108"
 
 # 🔗 URL do arquivo no SharePoint
 SHAREPOINT_URL = "https://suzano-my.sharepoint.com/personal/odiego_suzano_com_br"
