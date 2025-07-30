@@ -43,7 +43,7 @@ st.markdown("""
 
 # 🔐 Credenciais (use st.secrets)
 USERNAME = st.secrets["sharepoint"]["username"]  # "odiego@suzano.com.br"
-PASSWORD = st.secrets["sharepoint"]["password"]  # "Joaquim.0108"
+PASSWORD = st.secrets["sharepoint"]["password"]  # "sua_senha_aqui"
 
 # 🔗 URL do arquivo no SharePoint
 SHAREPOINT_URL = "https://suzano-my.sharepoint.com/personal/odiego_suzano_com_br"
@@ -264,8 +264,8 @@ elif page == "Visualizar Dados":
         col1, col2, col3, col4 = st.columns(4)
         with col1: st.metric("Total", len(df_filtrado))
         with col2: st.metric("Qtd Total", df_filtrado['10 - Qtd'].sum())
-        with col3: st.metric("Fornecedores", df_filtrado['07 - Fornecedor'].nunique())
-        with col4: st.metric("Áreas", df_filtrado['17 - Área'].nunique())
+        with col3: st.metric("Fornecedores", df_recebimento['07 - Fornecedor'].nunique())
+        with col4: st.metric("Áreas", df_recebimento['17 - Área'].nunique())
     else:
         st.info("📝 Nenhum dado encontrado. Cadastre primeiro!")
 
