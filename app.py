@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import datetime
 import uuid
-import io
-import requests
-from urllib.parse import quote
+import os
+
+# Caminho da pasta de rede
+EXCEL_PATH = r"\\samcpd42\PUBLIC\Area de Transferência\Materiais\Novo Recebimento\modelo_recebimento.xlsx"
 
 # Configuração da página
 st.set_page_config(
@@ -41,99 +42,51 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🔐 Credenciais (use st.secrets)
-USERNAME = st.secrets["sharepoint"]["username"]  # "odiego@suzano.com.br"
-PASSWORD = st.secrets["sharepoint"]["password"]  # "Joaquim.0108"
-
-# 🔗 URL do arquivo no SharePoint
-SHAREPOINT_URL = "https://suzano-my.sharepoint.com/personal/odiego_suzano_com_br"
-FILE_RELATIVE_URL = "/Documents/Novo%20Recebimento/modelo_recebimento.xlsx"
-
-# Função para baixar o Excel do SharePoint
-def download_excel():
-    try:
-        # Montar URL de download
-        download_url = f"{SHAREPOINT_URL}/_api/web/GetFileByServerRelativePath(decodedurl='{quote(FILE_RELATIVE_URL)}')/$value"
-        response = requests.get(download_url, auth=(USERNAME, PASSWORD))
-        if response.status_code == 200:
-            return pd.ExcelFile(io.BytesIO(response.content))
-        else:
-            st.error(f"❌ Falha ao baixar Excel: {response.status_code}")
-            return None
-    except Exception as e:
-        st.error(f"❌ Erro ao baixar Excel: {e}")
-        return None
-
-# Função para carregar dados de referência
+# Função para carregar dados de referência do Excel
 @st.cache_data
 def load_reference_data():
-    excel_file = download_excel()
-    if excel_file:
+    try:
+        materiais_df = pd.read_excel(EXCEL_PATH, sheet_name='Planilha3')
+        compatibilidade_df = pd.read_excel(EXCEL_PATH, sheet_name='Compatibilidade')
         try:
-            materiais_df = excel_file.parse('Planilha3')
-            compatibilidade_df = excel_file.parse('Compatibilidade')
-            try:
-                locais_df = excel_file.parse('Planilha1')
-            except:
-                locais_df = pd.DataFrame({'Onde': ['Área 1', 'Área 2', 'Área 3', 'Estoque A', 'Estoque B']})
-            return materiais_df, compatibilidade_df, locais_df
-        except Exception as e:
-            st.error(f"❌ Erro ao ler abas do Excel: {e}")
-            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-# Função para carregar dados de recebimento (vamos usar uma aba chamada 'Recebimento')
-def load_recebimento_data():
-    excel_file = download_excel()
-    if excel_file:
-        try:
-            df = excel_file.parse('Recebimento')
-            return df
+            locais_df = pd.read_excel(EXCEL_PATH, sheet_name='Planilha1')
         except:
-            st.warning("Aba 'Recebimento' não encontrada. Criando nova...")
-            columns = [
-                'teste', '04 - Item Material na NF', '02 - Nf', '05 - RR', '6 - RR',
-                '06 - Chave de acesso', '07 - Fornecedor', '10 - Qtd', '09 - Descrição Material',
-                '11 - Tipo', '08 - Ni', '17 - Área', '12 - Medida Pallets', '13 - Programado',
-                '15 - Recebedor', '14 - Status', '16 - Observação', '01 - Nº Processo',
-                'Controle', 'Data', 'Dia', 'Mês', 'Ano', '__PowerAppsId__'
-            ]
-            return pd.DataFrame(columns=columns)
-    return pd.DataFrame()
+            locais_df = pd.DataFrame({'Onde': ['Área 1', 'Área 2', 'Área 3', 'Estoque A', 'Estoque B']})
+        return materiais_df, compatibilidade_df, locais_df
+    except Exception as e:
+        st.error(f"❌ Erro ao carregar dados de referência: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-# Função para salvar dados de volta no Excel
+# Função para carregar dados de recebimento
+def load_recebimento_data():
+    try:
+        df = pd.read_excel(EXCEL_PATH, sheet_name='Recebimento')
+        return df
+    except Exception as e:
+        st.warning("Aba 'Recebimento' não encontrada ou vazia. Criando nova...")
+        columns = [
+            'teste', '04 - Item Material na NF', '02 - Nf', '05 - RR', '6 - RR',
+            '06 - Chave de acesso', '07 - Fornecedor', '10 - Qtd', '09 - Descrição Material',
+            '11 - Tipo', '08 - Ni', '17 - Área', '12 - Medida Pallets', '13 - Programado',
+            '15 - Recebedor', '14 - Status', '16 - Observação', '01 - Nº Processo',
+            'Controle', 'Data', 'Dia', 'Mês', 'Ano', '__PowerAppsId__'
+        ]
+        return pd.DataFrame(columns=columns)
+
+# Função para salvar dados no Excel
 def save_recebimento_data(df):
     try:
-        # Baixar o arquivo atual
-        excel_file = download_excel()
-        if excel_file is None:
-            st.error("❌ Não foi possível salvar: não conseguiu baixar o arquivo.")
-            return
-
-        # Usar pandas para escrever em um buffer
-        with pd.ExcelWriter("modelo_recebimento_atualizado.xlsx", engine="openpyxl") as writer:
-            # Reescrever todas as abas existentes
-            for sheet_name in excel_file.sheet_names:
-                if sheet_name != "Recebimento":
-                    df_sheet = excel_file.parse(sheet_name)
-                    df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
-            # Salvar a aba de recebimento atualizada
-            df.to_excel(writer, sheet_name="Recebimento", index=False)
-
-        # Ler o arquivo atualizado
-        with open("modelo_recebimento_atualizado.xlsx", "rb") as f:
-            file_content = f.read()
-
-        # Upload para o SharePoint
-        upload_url = f"{SHAREPOINT_URL}/_api/web/GetFileByServerRelativePath(decodedurl='{quote(FILE_RELATIVE_URL)}')/content"
-        response = requests.post(upload_url, auth=(USERNAME, PASSWORD), data=file_content)
-
-        if response.status_code == 200:
-            st.success("✅ Dados salvos no modelo_recebimento.xlsx com sucesso!")
-            # Limpar cache
-            st.cache_data.clear()
-        else:
-            st.error(f"❌ Erro ao salvar: {response.status_code}")
+        # Ler todas as abas existentes
+        with pd.ExcelFile(EXCEL_PATH, engine='openpyxl') as xls:
+            with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl', mode='w') as writer:
+                # Reescrever todas as abas, exceto 'Recebimento'
+                for sheet_name in xls.sheet_names:
+                    if sheet_name != 'Recebimento':
+                        df_sheet = pd.read_excel(xls, sheet_name=sheet_name)
+                        df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
+                # Salvar a aba atualizada de recebimento
+                df.to_excel(writer, sheet_name='Recebimento', index=False)
+        st.success("✅ Dados salvos no modelo_recebimento.xlsx com sucesso!")
     except Exception as e:
         st.error(f"❌ Erro ao salvar no Excel: {e}")
 
@@ -263,39 +216,8 @@ elif page == "Visualizar Dados":
         st.dataframe(df_filtrado, use_container_width=True)
         col1, col2, col3, col4 = st.columns(4)
         with col1: st.metric("Total", len(df_filtrado))
-        with col2: st.metric("Qtd Total", df_recebimento['10 - Qtd'].sum())
-        with col3: st.metric("Fornecedores", df_recebimento['07 - Fornecedor'].nunique())
-        with col4: st.metric("Áreas", df_recebimento['17 - Área'].nunique())
+        with col2: st.metric("Qtd Total", df_filtrado['10 - Qtd'].sum())
+        with col3: st.metric("Fornecedores", df_filtrado['07 - Fornecedor'].nunique())
+        with col4: st.metric("Áreas", df_filtrado['17 - Área'].nunique())
     else:
-        st.info("📝 Nenhum dado encontrado. Cadastre primeiro!")
-
-elif page == "Gerar Rótulo":
-    st.subheader("🏷️ Gerador de Rótulos")
-    if not df_recebimento.empty:
-        ni_selecionado = st.selectbox("Selecione o NI:", [""] + list(df_recebimento['08 - Ni'].dropna().unique()))
-        if ni_selecionado:
-            item = df_recebimento[df_recebimento['08 - Ni'] == ni_selecionado].iloc[-1]
-            descricao = get_material_description(ni_selecionado, materiais_df)
-            compatibilidade = get_compatibility_info(ni_selecionado, compatibilidade_df)
-            rotulo_html = f"""
-            <div style="border: 2px solid #000; padding: 20px; background-color: white;">
-                <h3 style="text-align: center;">RÓTULO DE MATERIAL</h3>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">NI:</td><td style="border: 1px solid #000; padding: 8px;">{ni_selecionado}</td></tr>
-                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Descrição:</td><td style="border: 1px solid #000; padding: 8px;">{descricao or item['09 - Descrição Material']}</td></tr>
-                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Fornecedor:</td><td style="border: 1px solid #000; padding: 8px;">{item['07 - Fornecedor']}</td></tr>
-                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Quantidade:</td><td style="border: 1px solid #000; padding: 8px;">{item['10 - Qtd']}</td></tr>
-                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Área:</td><td style="border: 1px solid #000; padding: 8px;">{item['17 - Área']}</td></tr>
-                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Data:</td><td style="border: 1px solid #000; padding: 8px;">{item['Data']}</td></tr>
-                    {f'<tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold; color: red;">Incompatibilidade:</td><td style="border: 1px solid #000; padding: 8px; color: red;">{compatibilidade}</td></tr>' if compatibilidade else ''}
-                </table>
-            </div>
-            """
-            st.markdown(rotulo_html, unsafe_allow_html=True)
-            if st.button("🖨️ Imprimir Rótulo"):
-                st.success("✅ Enviado para impressão!")
-    else:
-        st.info("📝 Nenhum material cadastrado.")
-
-st.markdown("---")
-st.markdown("**Sistema de Recebimento Suzano** - Desenvolvido com Streamlit")
+        st.info("📝 Nen
