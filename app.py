@@ -58,7 +58,7 @@ if not uploaded_file:
 try:
     excel_file = pd.ExcelFile(uploaded_file)
 except Exception as e:
-    st.error(f"❌ Erro ao ler o arquivo: {e}")
+    st.error(f"❌ Erro ao ler o arquivo Excel: {e}")
     st.stop()
 
 # Carregar dados de referência
@@ -176,6 +176,7 @@ if page == "Cadastro":
                     'Ano': ano,
                     '__PowerAppsId__': str(uuid.uuid4())
                 }
+                # Atualizar o DataFrame
                 global df_recebimento
                 df_recebimento = pd.concat([df_recebimento, pd.DataFrame([novo_registro])], ignore_index=True)
                 st.success("✅ Material cadastrado com sucesso!")
