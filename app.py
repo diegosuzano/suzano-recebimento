@@ -44,8 +44,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 🔐 Credenciais (use st.secrets no Streamlit Cloud)
-USERNAME = "odiego@suzano.com.br"
-PASSWORD = "SUA_SENHA_AQUI"  # Substitua no secrets.toml
+USERNAME = st.secrets["sharepoint"]["username"]  # "odiego@suzano.com.br"
+PASSWORD = st.secrets["sharepoint"]["password"]  # "sua_senha_aqui"
+
+# 🔗 URL do SharePoint
 SHAREPOINT_URL = "https://suzano-my.sharepoint.com/personal/odiego_suzano_com_br"
 EXCEL_FILE_URL = "/Documents/Novo%20Recebimento/modelo_recebimento.xlsx"
 
@@ -57,16 +59,17 @@ def load_reference_data():
         if ctx_auth.acquire_token_for_user(USERNAME, PASSWORD):
             ctx = ClientContext(SHAREPOINT_URL, ctx_auth)
             response = File.open_binary(ctx, EXCEL_FILE_URL)
-            
+
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                 tmp.write(response.content)
                 temp_path = tmp.name
 
+            # Carregar as abas
             materiais_df = pd.read_excel(temp_path, sheet_name='Planilha3')
             compatibilidade_df = pd.read_excel(temp_path, sheet_name='Compatibilidade')
             try:
                 locais_df = pd.read_excel(temp_path, sheet_name='Planilha1')
-            except:
+            except Exception:
                 locais_df = pd.DataFrame({'Onde': ['Área 1', 'Área 2', 'Área 3', 'Estoque A', 'Estoque B']})
 
             os.unlink(temp_path)
