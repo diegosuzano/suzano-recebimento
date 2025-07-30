@@ -4,8 +4,9 @@ import datetime
 import uuid
 import tempfile
 import os
-from office365.sharepoint.client_context import ClientContext
+from office365.files.file import File
 from office365.runtime.auth.authentication_context import AuthenticationContext
+from office365.sharepoint.client_context import ClientContext
 
 # Configuração da página
 st.set_page_config(
@@ -42,9 +43,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🔐 Credenciais (use st.secrets depois)
+# 🔐 Credenciais (use st.secrets no Streamlit Cloud)
 USERNAME = "odiego@suzano.com.br"
-PASSWORD = "SUA_SENHA_AQUI"  # Use st.secrets no Streamlit Cloud
+PASSWORD = "SUA_SENHA_AQUI"  # Substitua no secrets.toml
 SHAREPOINT_URL = "https://suzano-my.sharepoint.com/personal/odiego_suzano_com_br"
 EXCEL_FILE_URL = "/Documents/Novo%20Recebimento/modelo_recebimento.xlsx"
 
@@ -55,9 +56,8 @@ def load_reference_data():
         ctx_auth = AuthenticationContext(SHAREPOINT_URL)
         if ctx_auth.acquire_token_for_user(USERNAME, PASSWORD):
             ctx = ClientContext(SHAREPOINT_URL, ctx_auth)
-            response = ctx.web.get_file_by_server_relative_path(EXCEL_FILE_URL).download()
-            ctx.execute_query()
-
+            response = File.open_binary(ctx, EXCEL_FILE_URL)
+            
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                 tmp.write(response.content)
                 temp_path = tmp.name
@@ -163,7 +163,7 @@ if page == "Cadastro":
             status = st.selectbox("16 - Status", ["", "Recebido", "Pendente", "Em Análise"])
             areas_disponiveis = [""] + list(locais_df['Onde'].dropna().unique()) if not locais_df.empty else ["Área 1", "Área 2", "Área 3"]
             area = st.selectbox("17 - Área", areas_disponiveis)
-            observacao = st.text_area("18 - Observação")
+            observacao = st.text_area("16 - Observação")
         controle = st.text_input("Controle", value=str(uuid.uuid4())[:8])
         teste = st.selectbox("Teste", ["Outro Período", "Período Atual"])
         submitted = st.form_submit_button("📤 Enviar", use_container_width=True)
