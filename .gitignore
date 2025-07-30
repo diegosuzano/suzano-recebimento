@@ -4,5 +4,3 @@
 # Ignorar arquivos de ambiente Python
 venv/
 __pycache__/
-*.pyc
-.DS_Store
