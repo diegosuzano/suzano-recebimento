@@ -2,11 +2,9 @@ import streamlit as st
 import pandas as pd
 import datetime
 import uuid
-import tempfile
-import os
-from office365.files.file import File
-from office365.runtime.auth.authentication_context import AuthenticationContext
-from office365.sharepoint.client_context import ClientContext
+import io
+import requests
+from urllib.parse import quote
 
 # Configuração da página
 st.set_page_config(
@@ -43,97 +41,101 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🔐 Credenciais (vêm do st.secrets)
+# 🔐 Credenciais (use st.secrets)
 USERNAME = st.secrets["sharepoint"]["username"]  # "odiego@suzano.com.br"
 PASSWORD = st.secrets["sharepoint"]["password"]  # "sua_senha_aqui"
 
-# 🔗 URLs do SharePoint
+# 🔗 URL do arquivo no SharePoint
 SHAREPOINT_URL = "https://suzano-my.sharepoint.com/personal/odiego_suzano_com_br"
-EXCEL_FILE_URL = "/Documents/Novo%20Recebimento/modelo_recebimento.xlsx"
-CSV_FILE_URL = "/Documents/Novo%20Recebimento/recebimento.csv"  # Onde vamos salvar
+FILE_RELATIVE_URL = "/Documents/Novo%20Recebimento/modelo_recebimento.xlsx"
 
-# Função para carregar dados de referência do Excel no SharePoint
+# Função para baixar o Excel do SharePoint
+def download_excel():
+    try:
+        # Montar URL de download
+        download_url = f"{SHAREPOINT_URL}/_api/web/GetFileByServerRelativePath(decodedurl='{quote(FILE_RELATIVE_URL)}')/$value"
+        response = requests.get(download_url, auth=(USERNAME, PASSWORD))
+        if response.status_code == 200:
+            return pd.ExcelFile(io.BytesIO(response.content))
+        else:
+            st.error(f"❌ Falha ao baixar Excel: {response.status_code}")
+            return None
+    except Exception as e:
+        st.error(f"❌ Erro ao baixar Excel: {e}")
+        return None
+
+# Função para carregar dados de referência
 @st.cache_data
 def load_reference_data():
-    try:
-        ctx_auth = AuthenticationContext(SHAREPOINT_URL)
-        if ctx_auth.acquire_token_for_user(USERNAME, PASSWORD):
-            ctx = ClientContext(SHAREPOINT_URL, ctx_auth)
-            response = File.open_binary(ctx, EXCEL_FILE_URL)
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-                tmp.write(response.content)
-                temp_path = tmp.name
-
-            # Carregar as abas
-            materiais_df = pd.read_excel(temp_path, sheet_name='Planilha3')
-            compatibilidade_df = pd.read_excel(temp_path, sheet_name='Compatibilidade')
+    excel_file = download_excel()
+    if excel_file:
+        try:
+            materiais_df = excel_file.parse('Planilha3')
+            compatibilidade_df = excel_file.parse('Compatibilidade')
             try:
-                locais_df = pd.read_excel(temp_path, sheet_name='Planilha1')
+                locais_df = excel_file.parse('Planilha1')
             except:
                 locais_df = pd.DataFrame({'Onde': ['Área 1', 'Área 2', 'Área 3', 'Estoque A', 'Estoque B']})
-
-            os.unlink(temp_path)
             return materiais_df, compatibilidade_df, locais_df
-        else:
-            st.error("❌ Falha na autenticação no SharePoint")
+        except Exception as e:
+            st.error(f"❌ Erro ao ler abas do Excel: {e}")
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    except Exception as e:
-        st.error(f"❌ Erro ao carregar modelo_recebimento.xlsx: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-# Função para carregar dados de recebimento (CSV no SharePoint)
+# Função para carregar dados de recebimento (vamos usar uma aba chamada 'Recebimento')
 def load_recebimento_data():
-    try:
-        ctx_auth = AuthenticationContext(SHAREPOINT_URL)
-        if ctx_auth.acquire_token_for_user(USERNAME, PASSWORD):
-            ctx = ClientContext(SHAREPOINT_URL, ctx_auth)
-            try:
-                response = File.open_binary(ctx, CSV_FILE_URL)
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
-                    tmp.write(response.content)
-                    temp_path = tmp.name
-                df = pd.read_csv(temp_path)
-                os.unlink(temp_path)
-                return df
-            except:
-                st.warning("Arquivo recebimento.csv não encontrado. Criando novo...")
-                columns = [
-                    'teste', '04 - Item Material na NF', '02 - Nf', '05 - RR', '6 - RR',
-                    '06 - Chave de acesso', '07 - Fornecedor', '10 - Qtd', '09 - Descrição Material',
-                    '11 - Tipo', '08 - Ni', '17 - Área', '12 - Medida Pallets', '13 - Programado',
-                    '15 - Recebedor', '14 - Status', '16 - Observação', '01 - Nº Processo',
-                    'Controle', 'Data', 'Dia', 'Mês', 'Ano', '__PowerAppsId__'
-                ]
-                return pd.DataFrame(columns=columns)
-        else:
-            st.error("❌ Falha na autenticação para carregar dados")
-            return pd.DataFrame()
-    except Exception as e:
-        st.error(f"❌ Erro ao carregar recebimento.csv: {e}")
-        return pd.DataFrame()
+    excel_file = download_excel()
+    if excel_file:
+        try:
+            df = excel_file.parse('Recebimento')
+            return df
+        except:
+            st.warning("Aba 'Recebimento' não encontrada. Criando nova...")
+            columns = [
+                'teste', '04 - Item Material na NF', '02 - Nf', '05 - RR', '6 - RR',
+                '06 - Chave de acesso', '07 - Fornecedor', '10 - Qtd', '09 - Descrição Material',
+                '11 - Tipo', '08 - Ni', '17 - Área', '12 - Medida Pallets', '13 - Programado',
+                '15 - Recebedor', '14 - Status', '16 - Observação', '01 - Nº Processo',
+                'Controle', 'Data', 'Dia', 'Mês', 'Ano', '__PowerAppsId__'
+            ]
+            return pd.DataFrame(columns=columns)
+    return pd.DataFrame()
 
-# Função para salvar dados no CSV do SharePoint
+# Função para salvar dados de volta no Excel
 def save_recebimento_data(df):
     try:
-        ctx_auth = AuthenticationContext(SHAREPOINT_URL)
-        if ctx_auth.acquire_token_for_user(USERNAME, PASSWORD):
-            ctx = ClientContext(SHAREPOINT_URL, ctx_auth)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
-                df.to_csv(tmp.name, index=False)
-                with open(tmp.name, "rb") as f:
-                    file_content = f.read()
-                folder_url = "/".join(CSV_FILE_URL.split("/")[:-1])
-                file_name = CSV_FILE_URL.split("/")[-1]
-                ctx.web.get_folder_by_server_relative_path(folder_url).upload_file(
-                    file_name, file_content
-                ).execute_query()
-            os.unlink(tmp.name)
-            st.success("✅ Dados salvos no SharePoint com sucesso!")
+        # Baixar o arquivo atual
+        excel_file = download_excel()
+        if excel_file is None:
+            st.error("❌ Não foi possível salvar: não conseguiu baixar o arquivo.")
+            return
+
+        # Usar pandas para escrever em um buffer
+        with pd.ExcelWriter("modelo_recebimento_atualizado.xlsx", engine="openpyxl") as writer:
+            # Reescrever todas as abas existentes
+            for sheet_name in excel_file.sheet_names:
+                if sheet_name != "Recebimento":
+                    df_sheet = excel_file.parse(sheet_name)
+                    df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
+            # Salvar a aba de recebimento atualizada
+            df.to_excel(writer, sheet_name="Recebimento", index=False)
+
+        # Ler o arquivo atualizado
+        with open("modelo_recebimento_atualizado.xlsx", "rb") as f:
+            file_content = f.read()
+
+        # Upload para o SharePoint
+        upload_url = f"{SHAREPOINT_URL}/_api/web/GetFileByServerRelativePath(decodedurl='{quote(FILE_RELATIVE_URL)}')/content"
+        response = requests.post(upload_url, auth=(USERNAME, PASSWORD), data=file_content)
+
+        if response.status_code == 200:
+            st.success("✅ Dados salvos no modelo_recebimento.xlsx com sucesso!")
+            # Limpar cache
+            st.cache_data.clear()
         else:
-            st.error("❌ Falha na autenticação para salvar dados")
+            st.error(f"❌ Erro ao salvar: {response.status_code}")
     except Exception as e:
-        st.error(f"❌ Erro ao salvar no SharePoint: {e}")
+        st.error(f"❌ Erro ao salvar no Excel: {e}")
 
 # Função para buscar descrição do material
 def get_material_description(ni, materiais_df):
@@ -238,7 +240,6 @@ if page == "Cadastro":
                 }
                 df_recebimento = pd.concat([df_recebimento, pd.DataFrame([novo_registro])], ignore_index=True)
                 save_recebimento_data(df_recebimento)
-                st.markdown('<div class="success-message">✅ Material cadastrado com sucesso!</div>', unsafe_allow_html=True)
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
