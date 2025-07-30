@@ -40,14 +40,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🔐 Nome da planilha no Google Sheets (deve ser exatamente igual)
+# 🔐 Nome da planilha no Google Sheets
 SHEET_NAME = "modelo_recebimento_suzano"
 
 # Função para conectar ao Google Sheets
 @st.cache_resource
 def connect_to_google_sheets():
     try:
-        # Credenciais do st.secrets
         creds_dict = st.secrets["gcp_service_account"]
         scope = [
             "https://spreadsheets.google.com/feeds",
@@ -66,7 +65,7 @@ def load_sheet(sheet_name):
         sheet = sh.worksheet(sheet_name)
         data = sheet.get_all_records()
         return pd.DataFrame(data)
-    except Exception as e:
+    except:
         st.warning(f"Aba '{sheet_name}' não encontrada.")
         return pd.DataFrame()
 
@@ -207,9 +206,9 @@ if page == "Cadastro":
                     'Ano': ano,
                     '__PowerAppsId__': str(uuid.uuid4())
                 }
-                global df_recebimento
-                df_recebimento = pd.concat([df_recebimento, pd.DataFrame([novo_registro])], ignore_index=True)
-                save_to_sheet(df_recebimento, "Recebimento")
+                # ✅ Removido o 'global' que causava erro
+                df_recebimento_atualizado = pd.concat([df_recebimento, pd.DataFrame([novo_registro])], ignore_index=True)
+                save_to_sheet(df_recebimento_atualizado, "Recebimento")
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
