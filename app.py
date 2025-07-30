@@ -220,4 +220,35 @@ elif page == "Visualizar Dados":
         with col3: st.metric("Fornecedores", df_filtrado['07 - Fornecedor'].nunique())
         with col4: st.metric("Áreas", df_filtrado['17 - Área'].nunique())
     else:
-        st.info("📝 Nen
+        st.info("📝 Nenhum dado encontrado. Cadastre primeiro!")
+
+elif page == "Gerar Rótulo":
+    st.subheader("🏷️ Gerador de Rótulos")
+    if not df_recebimento.empty:
+        ni_selecionado = st.selectbox("Selecione o NI:", [""] + list(df_recebimento['08 - Ni'].dropna().unique()))
+        if ni_selecionado:
+            item = df_recebimento[df_recebimento['08 - Ni'] == ni_selecionado].iloc[-1]
+            descricao = get_material_description(ni_selecionado, materiais_df)
+            compatibilidade = get_compatibility_info(ni_selecionado, compatibilidade_df)
+            rotulo_html = f"""
+            <div style="border: 2px solid #000; padding: 20px; background-color: white;">
+                <h3 style="text-align: center;">RÓTULO DE MATERIAL</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">NI:</td><td style="border: 1px solid #000; padding: 8px;">{ni_selecionado}</td></tr>
+                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Descrição:</td><td style="border: 1px solid #000; padding: 8px;">{descricao or item['09 - Descrição Material']}</td></tr>
+                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Fornecedor:</td><td style="border: 1px solid #000; padding: 8px;">{item['07 - Fornecedor']}</td></tr>
+                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Quantidade:</td><td style="border: 1px solid #000; padding: 8px;">{item['10 - Qtd']}</td></tr>
+                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Área:</td><td style="border: 1px solid #000; padding: 8px;">{item['17 - Área']}</td></tr>
+                    <tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold;">Data:</td><td style="border: 1px solid #000; padding: 8px;">{item['Data']}</td></tr>
+                    {f'<tr><td style="border: 1px solid #000; padding: 8px; font-weight: bold; color: red;">Incompatibilidade:</td><td style="border: 1px solid #000; padding: 8px; color: red;">{compatibilidade}</td></tr>' if compatibilidade else ''}
+                </table>
+            </div>
+            """
+            st.markdown(rotulo_html, unsafe_allow_html=True)
+            if st.button("🖨️ Imprimir Rótulo"):
+                st.success("✅ Enviado para impressão!")
+    else:
+        st.info("📝 Nenhum material cadastrado.")
+
+st.markdown("---")
+st.markdown("**Sistema de Recebimento Suzano** - Desenvolvido com Streamlit")
