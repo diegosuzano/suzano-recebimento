@@ -1,4 +1,4 @@
 streamlit
 pandas
 openpyxl
-office365-rest-python-client
+Office365-REST-Python-Client
