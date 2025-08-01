@@ -4,6 +4,7 @@ import datetime
 import uuid
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from google.cloud import bigquery
 
 # Configuração da página
 st.set_page_config(
@@ -110,7 +111,64 @@ def save_to_sheet(df, sheet_name):
     except Exception as e:
         st.error(f"❌ Erro ao salvar: {e}")
 
-# Funções de busca
+# Função para buscar no GCP (BigQuery)
+def get_data_from_gcp(ni=None, nf=None, chave_acesso=None):
+    """Busca dados no BigQuery com filtros do Power Query"""
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+        client = bigquery.Client.from_service_account_info(creds_dict)
+
+        query = f"""
+        SELECT 
+            NI,
+            DESCRICAO,
+            TIPO,
+            Nome1_NAME1 AS fornecedor,
+            ChaveDeAcessoDe44Posicoes_NFEID AS chave_acesso,
+            NF,
+            QTD,
+            UNIDADE_MEDIDA
+        FROM `sz-dig-corp-business-prd.business_sap_pt_br.vw_NotasFiscaisControle_FULL _GMT4`
+        WHERE 1=1
+          AND Centro_WERKS = '5400'
+          AND DescricaLocalDeDescarga_ZVESTEL NOT IN (
+            '12 Secadora', '15 Fluff PA', '20 CD AMERICANA', '21 Devolução Americana',
+            '22 CD AMERICANA CTR', '5 Expedição', '7 Lonil P3', '8 Lonil Secadora'
+          )
+          AND CriarData_CREDAT > '2025-01-01'
+        """
+
+        if ni:
+            query += f" AND NI = '{ni}'"
+        elif nf:
+            query += f" AND NF = '{nf}'"
+        elif chave_acesso:
+            # Usa os primeiros 16 caracteres da chave para busca parcial
+            safe_chave = chave_acesso.strip()[:16]
+            if len(safe_chave) >= 8:
+                query += f" AND ChaveDeAcessoDe44Posicoes_NFEID LIKE '{safe_chave}%'"
+
+        query += " LIMIT 1"
+
+        df = client.query(query).to_dataframe()
+        if not df.empty:
+            row = df.iloc[0]
+            return {
+                "ni": row["NI"] if pd.notna(row["NI"]) else "",
+                "descricao": row["DESCRICAO"] if pd.notna(row["DESCRICAO"]) else "",
+                "tipo": row["TIPO"] if pd.notna(row["TIPO"]) else "",
+                "fornecedor": row["fornecedor"] if pd.notna(row["fornecedor"]) else "",
+                "chave_acesso": row["chave_acesso"] if pd.notna(row["chave_acesso"]) else "",
+                "nf": row["NF"] if pd.notna(row["NF"]) else "",
+                "qtd": float(row["QTD"]) if pd.notna(row["QTD"]) else 0.0,
+                "unidade": row["UNIDADE_MEDIDA"] if pd.notna(row["UNIDADE_MEDIDA"]) else ""
+            }
+        return {}
+    except Exception as e:
+        st.warning(f"🔍 Erro ao buscar no GCP: {e}")
+        return {}
+
+# Funções de busca locais (fallback)
 def get_material_description(ni, materiais_df):
     if not materiais_df.empty and ni:
         material = materiais_df[materiais_df.iloc[:, 0].astype(str) == str(ni)]
@@ -154,17 +212,42 @@ if page == "Cadastro":
             item_material_nf = st.text_input("04 - Item Material na NF")
             rr = st.text_input("05 - RR")
             rr2 = st.text_input("06 - RR")
-            chave_acesso = st.text_input("07 - Chave de Acesso")
+            chave_acesso_input = st.text_input("07 - Chave de Acesso")
         with col3:
-            fornecedor = st.text_input("08 - Fornecedor")
-            ni = st.text_input("09 - NI (Número de Identificação)")
-            qtd = st.number_input("10 - Quantidade", min_value=0.0, step=0.1)
-        descricao_material = get_material_description(ni, materiais_df)
+            # Inicializar variáveis
+            fornecedor = ""
+            ni = ""
+            qtd = 0.0
+
+            # Buscar no GCP pela chave de acesso
+            if chave_acesso_input:
+                info = get_data_from_gcp(chave_acesso=chave_acesso_input)
+                if info:
+                    fornecedor = info["fornecedor"]
+                    ni = info["ni"]
+
+            fornecedor = st.text_input("08 - Fornecedor", value=fornecedor)
+            ni = st.text_input("09 - NI (Número de Identificação)", value=ni)
+            qtd = st.number_input("10 - Quantidade", min_value=0.0, step=0.1, value=qtd)
+
+        # Buscar descrição e tipo com base no NI
+        descricao_material_input = ""
+        tipo = ""
+        medida_pallets = ""
+        if ni:
+            info = get_data_from_gcp(ni=ni)
+            if info:
+                descricao_material_input = info["descricao"]
+                tipo = info["tipo"]
+                medida_pallets = info["unidade"]
+            else:
+                descricao_material_input = get_material_description(ni, materiais_df)
+
         col4, col5 = st.columns(2)
         with col4:
-            descricao_material_input = st.text_input("11 - Descrição Material", value=descricao_material)
-            tipo = st.text_input("12 - Tipo")
-            medida_pallets = st.text_input("13 - Medida Pallets")
+            descricao_material_input = st.text_input("11 - Descrição Material", value=descricao_material_input)
+            tipo = st.text_input("12 - Tipo", value=tipo)
+            medida_pallets = st.text_input("13 - Medida Pallets", value=medida_pallets)
             programado = st.text_input("14 - Programado")
         with col5:
             recebedor = st.text_input("15 - Recebedor")
@@ -186,7 +269,7 @@ if page == "Cadastro":
                     '02 - Nf': nf,
                     '05 - RR': rr,
                     '6 - RR': rr2,
-                    '06 - Chave de acesso': chave_acesso,
+                    '06 - Chave de acesso': chave_acesso_input,
                     '07 - Fornecedor': fornecedor,
                     '10 - Qtd': qtd,
                     '09 - Descrição Material': descricao_material_input,
@@ -206,7 +289,6 @@ if page == "Cadastro":
                     'Ano': ano,
                     '__PowerAppsId__': str(uuid.uuid4())
                 }
-                # ✅ Removido o 'global' que causava erro
                 df_recebimento_atualizado = pd.concat([df_recebimento, pd.DataFrame([novo_registro])], ignore_index=True)
                 save_to_sheet(df_recebimento_atualizado, "Recebimento")
                 st.rerun()
